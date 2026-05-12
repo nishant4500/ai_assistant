@@ -1,0 +1,27 @@
+.env
+researchenv
+research_paper_vector_db
+src/__pycache__
+# Virtual Environment
+venv/
+venv_win/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Environment Variables
+.env
+
+# Uploads
+uploads/
+
+# VS Code
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS Files
+.DS_Store
+Thumbs.db
