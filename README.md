@@ -64,10 +64,23 @@ ResearchPortal is a sophisticated AI-powered research assistant designed to stre
 
 ## 🏃 Running the Application
 
+### Using Python
 Start the server using:
 ```bash
 python app.py
 ```
+
+### Using Docker
+1. **Build the Image**
+   ```bash
+   docker build -t research-portal .
+   ```
+
+2. **Run the Container**
+   ```bash
+   docker run -p 8000:8000 --env-file .env research-portal
+   ```
+
 The application will be available at `http://127.0.0.1:8000`.
 
 ## 📁 Project Structure
