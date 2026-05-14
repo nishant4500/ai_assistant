@@ -533,6 +533,11 @@ nav ul li a:hover { color: var(--text); }
 
 .topic-select-wrap select:focus { border-color: var(--accent); }
 
+.topic-select-wrap select option {
+  color: #000;
+  background: #fff;
+}
+
 .topic-select-wrap::after {
   content: '\f078';
   font-family: 'Font Awesome 6 Free';
@@ -839,6 +844,7 @@ footer {
   footer { flex-direction: column; align-items: flex-start; padding: 36px 24px; }
 }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -855,7 +861,6 @@ footer {
     <li><a href="#about">About</a></li>
   </ul>
   <div class="nav-cta">
-    <button class="btn btn-ghost">Sign In</button>
     <button class="btn btn-primary"><i class="fa-solid fa-bolt"></i> Get Started</button>
   </div>
 </nav>
@@ -951,7 +956,7 @@ footer {
     <div class="reveal">
       <!-- Drop Zone -->
       <div class="drop-zone" id="dropZone">
-        <input type="file" id="pdfFile" accept=".pdf">
+        <input type="file" id="pdfFile" accept=".pdf" multiple>
         <div class="drop-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
         <h4>Drag & Drop your PDF here</h4>
         <p>or click anywhere in this area to browse files</p>
@@ -981,11 +986,48 @@ footer {
           <div class="panel-body">
             <div class="topic-picker">
               <div class="topic-select-wrap">
-                <select id="topicSelect"></select>
+                <select id="paperSelect" onchange="updateTopicsForPaper()">
+                  <option value="" disabled selected>Select Paper</option>
+                </select>
+              </div>
+              <div class="topic-select-wrap">
+                <select id="summaryTypeSelect" onchange="toggleTopicSelect()">
+                  <option value="full">Full Paper Summary</option>
+                  <option value="section">Section-wise Summary</option>
+                  <option value="bullet">Bullet Summary</option>
+                </select>
+              </div>
+              <div class="topic-select-wrap" id="topicSelectWrap" style="display:none;">
+                <select id="topicSelect">
+                  <option value="" disabled selected>Select Section/Topic</option>
+                </select>
               </div>
               <button class="btn btn-primary" onclick="showTopicSummary()" style="white-space:nowrap;">
                 <i class="fa-solid fa-sparkles"></i> Generate Summary
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Features -->
+        <div class="panel-card" id="advancedCard" style="display:none;">
+          <div class="panel-header">
+            <div class="panel-header-left">
+              <i class="fa-solid fa-layer-group"></i>
+              <span>Advanced Analysis</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="topic-picker">
+              <button class="btn btn-primary" onclick="comparePapers()" style="white-space:nowrap;">
+                <i class="fa-solid fa-code-compare"></i> Compare Uploaded Papers
+              </button>
+              <div class="topic-select-wrap" style="display:flex; gap:10px; flex:2;">
+                <input type="text" id="litReviewTopic" placeholder="Enter topic for Literature Review" style="flex:1; border-radius: var(--radius-sm); border: 1px solid var(--border-2); background: var(--surface); color: var(--text); padding: 10px 14px; outline: none;">
+                <button class="btn btn-primary" onclick="generateLitReview()" style="white-space:nowrap;">
+                  <i class="fa-solid fa-book-open"></i> Lit Review
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1041,23 +1083,20 @@ footer {
   <div class="viz-grid">
     <div class="viz-card reveal">
       <div class="viz-card-label"><i class="fa-solid fa-chart-bar"></i> Keyword Frequency</div>
-      <div class="viz-placeholder">
-        <i class="fa-solid fa-chart-column"></i>
-        <span>Upload a paper to see keyword data</span>
+      <div style="height: 160px; width: 100%; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); padding: 10px;">
+        <canvas id="keywordChart"></canvas>
       </div>
     </div>
     <div class="viz-card reveal">
       <div class="viz-card-label"><i class="fa-solid fa-chart-line"></i> Topic Distribution</div>
-      <div class="viz-placeholder">
-        <i class="fa-solid fa-chart-pie"></i>
-        <span>Upload a paper to see topic data</span>
+      <div style="height: 160px; width: 100%; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); padding: 10px;">
+        <canvas id="topicChart"></canvas>
       </div>
     </div>
     <div class="viz-card reveal">
       <div class="viz-card-label"><i class="fa-solid fa-network-wired"></i> Citation Network</div>
-      <div class="viz-placeholder">
-        <i class="fa-solid fa-diagram-project"></i>
-        <span>Upload a paper to see citation links</span>
+      <div style="height: 160px; width: 100%; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); padding: 10px;">
+        <canvas id="citationChart"></canvas>
       </div>
     </div>
   </div>
@@ -1207,8 +1246,11 @@ const progressFill = document.getElementById('progressFill');
 const progressLabel = document.getElementById('progressLabel');
 const resultsPanel = document.getElementById('resultsPanel');
 const topicCard = document.getElementById('topicCard');
+const advancedCard = document.getElementById('advancedCard');
 const summaryCard = document.getElementById('summaryCard');
 const chatCard = document.getElementById('chatCard');
+const paperSelect = document.getElementById('paperSelect');
+const summaryTypeSelect = document.getElementById('summaryTypeSelect');
 const topicSelect = document.getElementById('topicSelect');
 const summaryContent = document.getElementById('summaryContent');
 const chatLog = document.getElementById('chatLog');
@@ -1225,11 +1267,21 @@ dropZone.addEventListener('drop', e => {
 fileInput.addEventListener('change', handleFile);
 
 async function handleFile() {
-  const file = fileInput.files[0];
-  if (!file) return;
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
+  const files = fileInput.files;
+  if (!files || files.length === 0) return;
+  
+  // Basic validation to ensure at least one PDF is selected
+  let hasPdf = false;
+  for (let i=0; i<files.length; i++) {
+    if (files[i].name.toLowerCase().endsWith('.pdf')) {
+      hasPdf = true;
+      break;
+    }
+  }
+  
+  if (!hasPdf) {
     progressWrap.style.display = 'block';
-    progressLabel.textContent = 'Please upload a valid PDF file.';
+    progressLabel.textContent = 'Please upload at least one valid PDF file.';
     progressFill.style.width = '100%';
     return;
   }
@@ -1240,16 +1292,21 @@ async function handleFile() {
   topicCard.style.display = 'none';
   summaryCard.style.display = 'none';
   chatCard.style.display = 'none';
+  advancedCard.style.display = 'none';
 
-  progressLabel.textContent = 'Uploading…';
+  progressLabel.textContent = `Uploading ${files.length} paper(s)…`;
   let w = 0;
   const iv = setInterval(() => {
     if (w >= 90) { clearInterval(iv); progressLabel.textContent = 'Processing with AI…'; }
     else { w += 8; progressFill.style.width = w + '%'; }
-  }, 180);
+  }, 300);
 
   const formData = new FormData();
-  formData.append('file', file);
+  for (let i=0; i<files.length; i++) {
+    if (files[i].name.toLowerCase().endsWith('.pdf')) {
+      formData.append('files', files[i]);
+    }
+  }
 
   try {
     const res = await fetch('/upload', { method: 'POST', body: formData });
@@ -1259,30 +1316,47 @@ async function handleFile() {
       throw new Error(data.error || 'Upload failed on server.');
     }
 
-    if (!Array.isArray(data.topics) || data.topics.length === 0) {
-      throw new Error('No topics detected from this PDF.');
+    if (!data.uploaded_papers || data.uploaded_papers.length === 0) {
+      throw new Error('No papers were successfully processed.');
     }
 
     clearInterval(iv);
     progressFill.style.width = '100%';
     progressLabel.textContent = 'Done!';
 
-    topicSelect.innerHTML = '';
-    data.topics.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t; opt.innerText = t;
-      topicSelect.appendChild(opt);
+    if (!window.paperTopics) window.paperTopics = {};
+    
+    // Process all uploaded papers
+    data.uploaded_papers.forEach(paper => {
+      // For simplicity, we assign the full unified topics list to each paper
+      // since the backend currently returns a merged list of topics
+      window.paperTopics[paper.paper_id] = data.topics;
+      
+      let exists = Array.from(paperSelect.options).some(opt => opt.value === paper.paper_id);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = paper.paper_id; 
+        opt.innerText = paper.paper_name;
+        paperSelect.appendChild(opt);
+      }
     });
+    
+    // Auto select the last uploaded paper
+    paperSelect.value = data.paper_id;
+    updateTopicsForPaper();
 
     setTimeout(() => {
       progressWrap.style.display = 'none';
       resultsPanel.style.display = 'flex';
       topicCard.style.display = 'block';
+      advancedCard.style.display = 'block';
+      chatCard.style.display = 'block';
+      renderCharts(data.paper_id);
     }, 600);
   } catch (err) {
     clearInterval(iv);
     progressFill.style.width = '100%';
-    progressLabel.textContent = err?.message || 'Error processing file.';
+    progressLabel.textContent = err?.message || 'Error processing file(s).';
   }
 }
 
@@ -1296,12 +1370,47 @@ function formatSummary(text) {
     .replace(/\n\n/g, '<br><br>');
 }
 
+function updateTopicsForPaper() {
+  const pid = paperSelect.value;
+  topicSelect.innerHTML = '';
+  if (pid && window.paperTopics && window.paperTopics[pid]) {
+    window.paperTopics[pid].forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t; opt.innerText = t;
+      topicSelect.appendChild(opt);
+    });
+  }
+}
+
+function toggleTopicSelect() {
+  const type = document.getElementById('summaryTypeSelect').value;
+  const wrap = document.getElementById('topicSelectWrap');
+  if (type === 'section') {
+    wrap.style.display = 'block';
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
 function showTopicSummary() {
-  const topic = topicSelect.value;
+  const topic = topicSelect.value || "All";
+  const paper_id = paperSelect.value;
+  const summary_type = summaryTypeSelect.value;
+  
+  if (!paper_id) {
+    alert("Please select a paper first.");
+    return;
+  }
+  
+  if (summary_type === 'section' && (!topic || topic === "All" || topicSelect.disabled)) {
+    alert("Please select a section.");
+    return;
+  }
+  
   fetch('/summary', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ topic })
+    body: JSON.stringify({ topic, paper_id, summary_type })
   })
   .then(res => res.json())
   .then(data => {
@@ -1311,8 +1420,50 @@ function showTopicSummary() {
     chatLog.innerHTML = `
       <div class="msg ai">
         <div class="msg-avatar"><i class="fa-solid fa-robot"></i></div>
-        <div class="msg-bubble">I've summarized the <strong>${topic}</strong> topic. Ask me anything about this paper!</div>
+        <div class="msg-bubble">I've generated the <strong>${summary_type}</strong> summary for <strong>${topic}</strong>. Ask me anything!</div>
       </div>`;
+  });
+}
+
+function comparePapers() {
+  const paper_ids = Array.from(paperSelect.options).map(opt => opt.value).filter(val => val !== "");
+  if (paper_ids.length < 2) {
+    alert("Please upload at least two papers to compare.");
+    return;
+  }
+  
+  summaryContent.innerHTML = "Generating comparison...";
+  summaryCard.style.display = 'block';
+  
+  fetch('/compare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paper_ids })
+  })
+  .then(res => res.json())
+  .then(data => {
+    summaryContent.innerHTML = formatSummary(data.comparison || data.error || 'Failed to compare.');
+  });
+}
+
+function generateLitReview() {
+  const topic = document.getElementById('litReviewTopic').value;
+  if (!topic) {
+    alert("Please enter a topic for the literature review.");
+    return;
+  }
+  
+  summaryContent.innerHTML = "Generating literature review...";
+  summaryCard.style.display = 'block';
+  
+  fetch('/literature-review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic })
+  })
+  .then(res => res.json())
+  .then(data => {
+    summaryContent.innerHTML = formatSummary(data.literature_review || data.error || 'Failed to generate review.');
   });
 }
 
@@ -1351,6 +1502,85 @@ function sendChat() {
 }
 
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+let charts = {};
+
+function renderCharts(paper_id) {
+  fetch('/insights/' + paper_id)
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) return;
+      
+      Chart.defaults.color = '#9898b8';
+      Chart.defaults.font.family = "'DM Sans', sans-serif";
+
+      const ctxKeyword = document.getElementById('keywordChart').getContext('2d');
+      if (charts.keyword) charts.keyword.destroy();
+      charts.keyword = new Chart(ctxKeyword, {
+        type: 'bar',
+        data: {
+          labels: data.keyword_frequency.labels,
+          datasets: [{
+            label: 'Frequency',
+            data: data.keyword_frequency.data,
+            backgroundColor: 'rgba(124, 108, 250, 0.6)',
+            borderColor: 'rgba(124, 108, 250, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: { 
+          responsive: true, 
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } }
+        }
+      });
+      
+      const ctxTopic = document.getElementById('topicChart').getContext('2d');
+      if (charts.topic) charts.topic.destroy();
+      charts.topic = new Chart(ctxTopic, {
+        type: 'doughnut',
+        data: {
+          labels: data.topic_distribution.labels,
+          datasets: [{
+            data: data.topic_distribution.data,
+            backgroundColor: ['#7c6cfa', '#fa6c9a', '#6cf0d4', '#fac86c', '#e8e8f0', '#5a5a78'],
+            borderWidth: 0
+          }]
+        },
+        options: { 
+          responsive: true, 
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } }
+        }
+      });
+      
+      const ctxCitation = document.getElementById('citationChart').getContext('2d');
+      if (charts.citation) charts.citation.destroy();
+      charts.citation = new Chart(ctxCitation, {
+        type: 'line',
+        data: {
+          labels: data.citation_network.labels.map(l => l.substring(0,10) + '...'),
+          datasets: [{
+            label: 'Citations',
+            data: data.citation_network.data,
+            borderColor: '#fa6c9a',
+            backgroundColor: 'rgba(250, 108, 154, 0.1)',
+            fill: true,
+            tension: 0.4
+          }]
+        },
+        options: { 
+          responsive: true, 
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: { display: false }
+          }
+        }
+      });
+    });
+}
 </script>
 </body>
 </html>

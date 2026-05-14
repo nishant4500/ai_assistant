@@ -5,6 +5,7 @@ src/__pycache__
 # Virtual Environment
 venv/
 venv_win/
+.venv/
 
 # Python Cache
 __pycache__/

@@ -1,7 +1,12 @@
 import json
 from typing import List, Dict
 
-def refine_sections(input_list: str, llm) -> List[Dict]:
+def refine_sections(input_list, llm) -> List[Dict]:
+    if isinstance(input_list, list):
+        input_list_str = json.dumps(input_list)
+    else:
+        input_list_str = str(input_list)
+        
     prompt = f"""
 You are a precise data processor.
 
@@ -28,7 +33,7 @@ Your task is to **refine this list**:
 
 Here is the input JSON:
 
-{input_list}
+{input_list_str}
 
 Always return list of dictionaries only, no preamble.
 """
@@ -43,11 +48,15 @@ Always return list of dictionaries only, no preamble.
         print("Warning: Could not refine sections with LLM. Falling back to extracted sections.")
         print("Error:", e)
         try:
-            sections = json.loads(input_list)
+            sections = json.loads(input_list_str)
             if not isinstance(sections, list):
                 sections = []
         except Exception:
-            sections = []
+            # Fallback directly to the input if it was already a list
+            if isinstance(input_list, list):
+                sections = input_list
+            else:
+                sections = []
 
     return sections
 
@@ -63,6 +72,11 @@ def split_sections_with_content(text: str, detected_sections: List[Dict]) -> Lis
     # Sort by start index to ensure correct order
     detected_sections = sorted(detected_sections, key=lambda x: x["start"])
     results = {}
+
+    # Capture any text before the first detected section
+    first_start = detected_sections[0]["start"]
+    if first_start > 0:
+        results["Front Matter / Abstract"] = text[0:first_start].strip()
 
     for i, sec in enumerate(detected_sections):
         start = sec["start"]

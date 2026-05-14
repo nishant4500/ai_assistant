@@ -1,25 +1,29 @@
 import re
-import json
-from pathlib import Path
-from PyPDF2 import PdfReader
-
+import fitz  # PyMuPDF
 
 def extract_text_from_pdf(pdf_path):
-    reader = PdfReader(str(pdf_path))
+    """
+    Extracts text from a PDF file using PyMuPDF (fitz).
+    Handles basic cleaning and layout preservation.
+    """
+    doc = fitz.open(str(pdf_path))
     full_text = ""
-    for page in reader.pages:
-        full_text += page.extract_text() + "\n"
+    
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        text = page.get_text("text")
+        full_text += text + "\n"
+        
+    doc.close()
     return full_text
 
 def extract_parent_title(full_text, parent_number):
-
     parent_title_match = re.search(
         rf"^{parent_number}\s+(.+)", 
         full_text, 
         re.MULTILINE
     )
     return parent_title_match.group(1).strip() if parent_title_match else ""
-
 
 def parse_sections(text):
     # Regex for headings like "1 Introduction", "3.2.1 Scaled Dot-Product Attention"
@@ -50,7 +54,7 @@ def parse_sections(text):
     return sections   
 
 def find_abstract(text):
-    abstract_match = re.search(r"\bAbstract\b", text)
+    abstract_match = re.search(r"\bAbstract\b", text, re.IGNORECASE)
     if abstract_match:
         return {"section": "Abstract", "start": abstract_match.start()}
     return None 
@@ -65,6 +69,3 @@ def extract_pdf_sections(full_text):
         sections.insert(0, abstract)
     
     return sections
-    
-    
-    
